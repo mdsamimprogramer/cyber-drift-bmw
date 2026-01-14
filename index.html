@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>BMW M4: PRO EDITION</title>
+    <title>BMW M4: TRAFFIC EDITION</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Teko:wght@400;600&display=swap');
 
@@ -197,7 +197,7 @@
 
     <div id="overlay">
         <h1 class="title">BMW M4</h1>
-        <div class="subtitle">PROFESSIONAL EDITION</div>
+        <div class="subtitle">MAXIMUM TRAFFIC</div>
         <div style="color:#aaa; font-size:1.2rem; text-align:center;">
             [W] GAS | [S] BRAKE/REVERSE<br>
             [A/D] STEER | [SPACE] DRIFT | [SHIFT] NITRO
@@ -216,6 +216,7 @@
         import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
         import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
         // --- CONFIG ---
         const CONFIG = {
@@ -234,7 +235,7 @@
                 ROAD_W: 40,
                 CHUNK: 300,
                 TREES: 1500,
-                TRAFFIC_COUNT: 5
+                TRAFFIC_COUNT: 7
             }
         };
 
@@ -248,7 +249,7 @@
             steer: 0
         };
 
-        // --- SCENE ---
+        // --- SCENE & ASSET MANAGER ---
         const scene = new THREE.Scene();
         scene.fog = new THREE.FogExp2(0x050510, 0.005);
 
@@ -258,12 +259,88 @@
         renderer.shadowMap.enabled = true;
         document.body.appendChild(renderer.domElement);
 
+        const loader = new GLTFLoader();
+
+        // 3D Traffic Definitions
+        // To use real models: Place .glb files in an 'assets' folder relative to this file
+        // and update the paths below. The code automatically falls back to procedural meshes if loading fails.
+        const TRAFFIC_TYPES = [
+            { id: 'sedan', path: 'assets/sedan.glb', color: 0x228822, fallback: createSedan },    // Green Sedan
+            { id: 'hatch', path: 'assets/hatch.glb', color: 0xcccc00, fallback: createHatchback }, // Yellow Hatchback
+            { id: 'suv', path: 'assets/suv.glb', color: 0x2244aa, fallback: createSUV }        // Blue SUV
+        ];
+
+        // --- FALLBACK GENERATORS (Procedural 3D) ---
+        function createSedan(color) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
+            // Hood
+            const hood = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.6, 1.2), mat);
+            hood.position.set(0, 0.4, -1.2);
+            // Cabin
+            const cab = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 1.5), mat);
+            cab.position.set(0, 0.7, 0.1);
+            // Trunk
+            const trunk = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 0.8), mat);
+            trunk.position.set(0, 0.4, 1.2);
+            g.add(hood, cab, trunk);
+            addWheels(g);
+            return g;
+        }
+
+        function createHatchback(color) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.3 });
+            // Main Body (Compact)
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.7, 3), mat);
+            body.position.y = 0.5;
+            // Cabin top
+            const top = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 1.8), mat);
+            top.position.set(0, 1.1, -0.2);
+            g.add(body, top);
+            addWheels(g);
+            return g;
+        }
+
+        function createSUV(color) {
+            const g = new THREE.Group();
+            const mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.5 });
+            // Main Block
+            const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.9, 4), mat);
+            body.position.y = 0.8;
+            // Cabin
+            const top = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.6, 2.5), mat);
+            top.position.set(0, 1.5, -0.2);
+            g.add(body, top);
+            addWheels(g, 0.4); // Bigger wheels
+            return g;
+        }
+
+        function addWheels(group, r = 0.3) {
+            const geo = new THREE.CylinderGeometry(r, r, 0.3, 16);
+            geo.rotateZ(Math.PI / 2);
+            const mat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+            const pX = 0.8, pY = 0.3, pZ = 1.2;
+            const pos = [[pX, pY, pZ], [-pX, pY, pZ], [pX, pY, -pZ], [-pX, pY, -pZ]];
+            pos.forEach(p => {
+                const w = new THREE.Mesh(geo, mat);
+                w.position.set(...p);
+                group.add(w);
+            });
+            // Lights
+            const tl = new THREE.PointLight(0xff0000, 1, 5); tl.position.set(0, 0.8, 2);
+            const hl = new THREE.PointLight(0xffffff, 1, 5); hl.position.set(0, 0.8, -2);
+            group.add(tl, hl);
+        }
+
+        // --- COMPOSER & POST ---
         const composer = new EffectComposer(renderer);
         composer.addPass(new RenderPass(scene, camera));
         const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
         bloom.strength = 1.0; bloom.radius = 0.5;
         composer.addPass(bloom);
 
+        // --- PHYSICS ---
         const world = new CANNON.World();
         world.gravity.set(0, CONFIG.WORLD.GRAVITY, 0);
         world.broadphase = new CANNON.SAPBroadphase(world);
@@ -272,10 +349,9 @@
         const matWheel = new CANNON.Material();
         const matCar = new CANNON.Material();
         world.addContactMaterial(new CANNON.ContactMaterial(matGround, matWheel, { friction: CONFIG.PLAYER.FRICTION }));
-        world.addContactMaterial(new CANNON.ContactMaterial(matCar, matGround, { friction: 0.0 })); // Car body shouldn't stick if it flips
+        world.addContactMaterial(new CANNON.ContactMaterial(matCar, matGround, { friction: 0.0 }));
 
         // --- ASSETS ---
-        // Asphalt
         const c = document.createElement('canvas'); c.width = 1024; c.height = 1024;
         const ctx = c.getContext('2d');
         ctx.fillStyle = '#111'; ctx.fillRect(0, 0, 1024, 1024);
@@ -286,7 +362,6 @@
         const tRoad = new THREE.CanvasTexture(c);
         tRoad.wrapS = tRoad.wrapT = THREE.RepeatWrapping; tRoad.repeat.set(1, 4); tRoad.anisotropy = 16;
 
-        // Environment
         const roadMat = new THREE.MeshStandardMaterial({ map: tRoad, roughness: 0.8 });
         const roadChunks = [];
         for (let i = 0; i < 6; i++) {
@@ -327,27 +402,25 @@
             glow: new THREE.MeshStandardMaterial({ color: 0x550000, emissive: 0xff0000, emissiveIntensity: 0.5 })
         };
 
-        // Body
         const b = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.5, 4.6), mats.paint);
         b.position.y = 0.5; b.castShadow = true; chassisMesh.add(b);
         const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.45, 2.4), mats.paint);
         cab.position.set(0, 0.95, -0.2); chassisMesh.add(cab);
         const win = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.38, 1.9), mats.glass);
         win.position.set(0, 0.96, -0.2); chassisMesh.add(win);
-        // Grille & Spoiler
+
         const g1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.25, 0.1), mats.black);
         g1.position.set(-0.25, 0.5, -2.31); chassisMesh.add(g1);
         const g2 = g1.clone(); g2.position.set(0.25, 0.5, -2.31); chassisMesh.add(g2);
         const sp = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.05, 0.3), mats.black);
         sp.position.set(0, 0.85, 2.2); chassisMesh.add(sp);
-        // Lights
+
         const hl = new THREE.SpotLight(0xffffff, 80, 200, 0.6, 0.5);
         hl.position.set(0, 0.6, -2); hl.target.position.set(0, 0, -20);
         chassisMesh.add(hl); chassisMesh.add(hl.target);
         const ug = new THREE.PointLight(0x0055ff, 4, 15);
         ug.position.set(0, 0.5, 0); chassisMesh.add(ug);
 
-        // Physics Body
         const cBody = new CANNON.Body({ mass: CONFIG.PLAYER.MASS, material: matCar });
         cBody.addShape(new CANNON.Box(new CANNON.Vec3(0.95, 0.4, 2.3)), new CANNON.Vec3(0, 0.6, 0));
         cBody.position.set(0, 2, 0); cBody.linearDamping = 0.5; cBody.angularDamping = 0.5;
@@ -383,24 +456,31 @@
 
         // --- TRAFFIC ---
         const traffic = [];
-        const trafficGeo = new THREE.BoxGeometry(1.8, 1.2, 4);
-        const trafficMat = new THREE.MeshStandardMaterial({ color: 0xaa0000 }); // Red Boxes
-
+        // Spawn logic
         for (let i = 0; i < CONFIG.WORLD.TRAFFIC_COUNT; i++) {
-            const mesh = new THREE.Mesh(trafficGeo, trafficMat);
+            const type = TRAFFIC_TYPES[Math.floor(Math.random() * TRAFFIC_TYPES.length)];
+            let mesh;
+
+            // Try to load GLTF, else fallback
+            // NOTE: Since we are running in a single file without assets, we immediately use fallback
+            // To enable real assets, uncomment the loader logic below and ensure files exist.
+            mesh = type.fallback(type.color);
             mesh.castShadow = true;
-            // Add lights to traffic
-            const tl = new THREE.PointLight(0xffaa00, 2, 10);
-            tl.position.set(0, 0, 2.1); mesh.add(tl);
+
+            // Placeholder: If you have GLB files
+            /*
+            loader.load(type.path, (gltf) => {
+                const loadedMesh = gltf.scene;
+                // Replace procedural mesh...
+            });
+            */
+
             scene.add(mesh);
-            traffic.push({ mesh, z: -100 - Math.random() * 200, speed: 10 + Math.random() * 10, lane: (Math.random() < 0.5 ? 5 : -5) });
+            traffic.push({ mesh, z: -100 - Math.random() * 200, speed: 10 + Math.random() * 15, lane: (Math.random() < 0.5 ? 5 : -5) });
         }
 
         // --- LOGIC ---
-        function startGame() {
-            document.body.requestPointerLock();
-        }
-
+        function startGame() { document.body.requestPointerLock(); }
         document.getElementById('overlay').addEventListener('click', startGame);
         document.getElementById('restart-btn').addEventListener('click', resetGame);
 
@@ -426,8 +506,7 @@
         }
 
         function crash() {
-            STATE.mode = 'CRASHED';
-            document.exitPointerLock();
+            STATE.mode = 'CRASHED'; document.exitPointerLock();
             document.getElementById('crash-screen').style.display = 'flex';
         }
 
@@ -464,21 +543,14 @@
             else if (STATE.mode === 'PLAYING') {
                 STATE.time += dt;
 
-                // Physics Input
                 let eng = 0;
                 if (INPUT.w) eng = CONFIG.PLAYER.ENGINE;
-                if (INPUT.s) eng = -CONFIG.PLAYER.ENGINE; // Reverse/Brake
-
-                // Nitro
+                if (INPUT.s) eng = -CONFIG.PLAYER.ENGINE;
                 if (INPUT.shift && STATE.nitro > 0) {
-                    eng = CONFIG.PLAYER.NITRO_ENGINE;
-                    STATE.nitro -= CONFIG.PLAYER.NITRO_DRAIN;
-                } else if (STATE.nitro < 100) {
-                    STATE.nitro += CONFIG.PLAYER.NITRO_REGEN;
-                }
+                    eng = CONFIG.PLAYER.NITRO_ENGINE; STATE.nitro -= CONFIG.PLAYER.NITRO_DRAIN;
+                } else if (STATE.nitro < 100) STATE.nitro += CONFIG.PLAYER.NITRO_REGEN;
 
                 vehicle.applyEngineForce(eng, 2); vehicle.applyEngineForce(eng, 3);
-
                 let brake = INPUT.space ? CONFIG.PLAYER.BRAKE * 5 : 0;
                 vehicle.setBrake(brake, 0); vehicle.setBrake(brake, 1);
                 vehicle.setBrake(brake, 2); vehicle.setBrake(brake, 3);
@@ -491,39 +563,30 @@
 
                 world.step(1 / 60, dt, 3);
 
-                // Sync
-                carGrp.position.copy(cBody.position);
-                carGrp.quaternion.copy(cBody.quaternion);
+                carGrp.position.copy(cBody.position); carGrp.quaternion.copy(cBody.quaternion);
                 for (let i = 0; i < 4; i++) {
                     vehicle.updateWheelTransform(i);
                     wheelMeshes[i].position.copy(vehicle.wheelInfos[i].worldTransform.position);
                     wheelMeshes[i].quaternion.copy(vehicle.wheelInfos[i].worldTransform.quaternion);
                 }
 
-                // Traffic Logic
                 pBox.setFromObject(chassisMesh);
                 traffic.forEach(t => {
-                    t.mesh.position.set(t.lane, 0.6, t.z);
-                    // Move towards player (simple reverse direction logic)
-                    // If car is 'ahead' (negative Z), let's make it move closer (positive Z speed)
+                    t.mesh.position.set(t.lane, 0, t.z);
                     t.z += t.speed * dt;
-
-                    // Recycle
                     if (t.z > cBody.position.z + 50) {
                         t.z = cBody.position.z - 300 - Math.random() * 200;
-                        t.lane = Math.random() < 0.5 ? 6 : -6; // Traffic lanes
+                        t.lane = Math.random() < 0.5 ? 6 : -6;
+                        // Randomize speed next spawn
+                        t.speed = 10 + Math.random() * 15;
                     }
-
-                    // Collision
                     tBox.setFromObject(t.mesh);
                     if (pBox.intersectsBox(tBox)) crash();
                 });
 
-                // Environment Update
                 const z = cBody.position.z;
                 const cz = Math.floor(z / CONFIG.WORLD.CHUNK);
                 roadChunks.forEach((c, i) => c.position.z = (cz - i) * CONFIG.WORLD.CHUNK + CONFIG.WORLD.CHUNK / 2);
-
                 treesData.forEach((d, i) => {
                     if (d.z > z + 200) d.z -= 2000;
                     if (d.z < z - 1800) d.z += 2000;
@@ -533,18 +596,15 @@
                 treeInst.instanceMatrix.needsUpdate = true;
                 sun.position.z = z + 100; sun.target.position.z = z - 50; sun.target.updateMatrixWorld();
 
-                // Camera
                 const tgt = new THREE.Vector3(0, 4, 10).applyQuaternion(cBody.quaternion).add(cBody.position);
                 tgt.y = Math.max(tgt.y, 1);
                 camera.position.lerp(tgt, 0.1);
                 camera.lookAt(cBody.position.x, cBody.position.y + 1, cBody.position.z);
 
-                // Dynamic FOV
                 const baseFov = INPUT.shift ? 85 : 70;
                 camera.fov += (baseFov - camera.fov) * 0.05;
                 camera.updateProjectionMatrix();
 
-                // HUD
                 const speed = Math.floor(cBody.velocity.length() * 3.6);
                 document.getElementById('speed').innerText = speed;
                 document.getElementById('dist').innerText = Math.floor(Math.abs(z)) + "m";
@@ -553,7 +613,6 @@
 
                 if (INPUT.s) mats.glow.emissiveIntensity = 2; else mats.glow.emissiveIntensity = 0.5;
             }
-
             composer.render();
         }
         animate();
